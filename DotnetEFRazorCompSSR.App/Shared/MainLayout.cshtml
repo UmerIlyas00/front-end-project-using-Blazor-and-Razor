@@ -1,0 +1,16 @@
+﻿@inherits BlazorLayoutComponent
+
+<div class="sidebar">
+    <NavMenu />
+</div>
+
+<div class="main">
+    <div class="d-flex justify-content-spacearound top-row px-4">
+        <div><small>.Net core web app using Blazor/Razor components rendered on server(SSR) with data access using entity framework from Sql/In-memory database</small></div>
+        <a href="https://blazor.net" target="_blank" class="ml-md-auto">About</a>
+    </div>
+
+    <div class="content px-4">
+        @Body
+    </div>
+</div>

@@ -1,0 +1,170 @@
+﻿@using System.Threading;
+@using DotnetEFRazorCompSSR.App.Services;
+@using Newtonsoft.Json;
+@using Newtonsoft.Json.Linq;
+@page "/websitesdata"
+@inject WebsiteDataService WebsiteService
+@implements IDisposable
+
+<h1>Websites Data</h1>
+<div style="display:grid; grid-auto-flow:column; justify-content:space-between">
+    <p>This component demonstrates fetching data from the database</p>
+    <p><b>Current server time :</b> @currentDateTime.ToLongTimeString()</p>
+</div>
+<div class="d-flex justify-content-start form-inline py-2" style="visibility :@showFilterControls" role="toolbar">
+    <div class="form-group mb-2">
+        <label for="userTopNumber" class="px-2">Get top</label>
+        <select id="userTopNumber" class="form-control form-control-sm" bind="@topNumber" onchange="@(e => topNumber=int.Parse(e.Value.ToString()))">
+            @foreach (var item in Enumerable.Range(1, 10))
+            {
+                <option value="@item">@item</option>
+            };
+        </select>
+    </div>
+    <div class="form-group mb-2">
+        <label for="userDataInout" class="px-2">websites for date</label>
+        <input id="userDateInput" class="form-control form-control-sm" type="date" format-value="yyyy-MM-dd" bind="@userDate"
+               min="@minMaxDates?.MinDate.ToString("yyyy-MM-dd")" max="@minMaxDates?.MaxDate.ToString("yyyy-MM-dd")"
+               onchange="@(e => userDate = DateTime.Parse(e.Value.ToString()))" />
+    </div>
+    <div class="form-group mb-2 pr-2">
+        <label for="userColumns" class="px-2">with columns as</label>
+        <select id="userColumns" class="form-control form-control-sm" bind="@userColumnValue" onchange="@(e => userColumnValue=e.Value.ToString())">
+            @foreach (var item in lstColumns)
+            {
+                <option value="@item">@item</option>
+            };
+        </select>
+    </div>
+    <div class="form-group mb-2 pr-2">
+        <input id="btnView" class="btn btn-outline-primary btn-sm" type="button" value="View" onclick="@(() => this.getData())" />
+        <label for="btnView" class="px-2">&nbsp;</label>
+    </div>
+</div>
+@if (websites == null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                @foreach (var colName in lstColumnNames)
+                {
+                    if (colName.Trim().ToLower() != "websiteid" && appliedColumnValue.ToLower().Contains(colName.ToLower()))
+                    {
+                        <th>@colName</th>
+                    }
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var website in websites) // iterate item rows/array
+            {
+                <tr>
+                    @foreach (JToken colItem in website?.Children()) // iterate columns for each row item
+                    {
+                        JProperty itemProps = (JProperty)colItem; // get column properties
+                        var itemName = itemProps.Name.ToString(); // row column name
+                        var itemValue = itemProps.Value.ToString(); // row value for column
+                        if (itemName.Trim().ToLower() != "websiteid" && appliedColumnValue.ToLower().Contains(itemName.ToLower()))
+                        {
+                            @if (itemName.Trim().ToLower() == "visitdate" && !string.IsNullOrEmpty(itemValue.ToString()))
+                            {
+                                <td>@DateTime.Parse(itemValue.ToString()).ToString("MM/dd/yyyy")</td>
+                            }
+                            else if (itemName.Trim().ToLower() == "visitdate" && string.IsNullOrEmpty(itemValue.ToString()))
+                            {
+                                <td>&nbsp;</td>
+                            }
+                            else
+                            {
+                                <td>@(itemValue)</td>
+                            }
+                        }
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@functions {
+    // declare variables
+    JArray websites;
+    MinMaxDate minMaxDates;
+    DateTime userDate, currentDateTime = DateTime.Now;
+    int topNumber = 5;
+    List<string> lstColumns = new List<string>(), lstColumnNames = new List<string>();
+    string userColumnValue, appliedColumnValue, showFilterControls = "hidden";
+    Timer currentTimer;
+
+    // on component initialization
+    protected override Task OnInitAsync()
+    {
+        // initial housekeeping
+        lstColumnNames = (new Websites()).GetType().GetProperties().Select(col => col.Name).Where(colName => colName.Trim().ToLower() != "websiteid").ToList<string>();
+        lstColumns.Add(string.Join(", ", lstColumnNames));
+        lstColumns.Add(string.Join(", ", lstColumnNames.Where(col => col.Trim().ToLower() != "visitdate")));
+        appliedColumnValue = lstColumns.FirstOrDefault();
+        userColumnValue = appliedColumnValue;
+
+        // run timer to display current time upto interval of second during entire component lifecycle
+        Task.Run(() =>
+        {
+            currentTimer = new Timer(e =>
+            {
+                currentDateTime = DateTime.Now;
+                this.StateHasChanged();
+            }
+            , currentDateTime, 1000, 1000);
+        });
+
+        // get and set min/max dates available to user for selection of only specific range of dates to filter data for
+        return WebsiteService.GetMinMaxDateAsync().ContinueWith(e =>
+        {
+            minMaxDates = e.Result;
+            userDate = minMaxDates.MinDate;
+
+            Task.Run(() =>
+            {
+                // display filter elements at once after below interval during initial component loading 
+                Thread.Sleep(100);
+                showFilterControls = "visible";
+                this.StateHasChanged();
+            });
+
+            // call to load initial required table item data for component to display with default filters 
+            return getData();
+        });
+    }
+
+    // function to get data from database and render it to UI elements
+    private Task getData()
+    {
+        websites = null; // to show "Loading..." message while getting data    
+        this.StateHasChanged();
+        return WebsiteService
+            .GetWebsitesAsync(userDate.ToShortDateString(), topNumber)
+            .ContinueWith(e =>
+            {
+                websites = new JArray();
+                appliedColumnValue = userColumnValue;
+                string jsonWebsites = JsonConvert.SerializeObject(e.Result);
+                var parsedWebsites = JObject.Parse("{ 'items':" + jsonWebsites + "}");
+                ((JArray)parsedWebsites["items"]).ToList().ForEach(item =>
+                {
+                    // display each row at below interval during rendering of table elements  
+                    Thread.Sleep(100);
+                    websites.Add((JObject)item);
+                    this.StateHasChanged();
+                });
+            });
+    }
+
+    public void Dispose()
+    {
+        currentTimer = null;
+    }
+}
